@@ -1,0 +1,35 @@
+# Frontend dependencies and generated output
+node_modules/
+dist/
+
+# Android / Gradle generated state
+**/.gradle/
+android-apk/.gradle-user-home/
+android-apk/.android-user/
+android-apk/.local-android-sdk/
+android-apk/local.properties
+**/build/
+*.iml
+
+# Local validation and editor state
+.scratch/
+android-apk/.scratch/
+artifacts/
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets and signing material must never be committed
+.env
+.env.*
+!.env.example
+*credentials*
+*.keystore
+*.jks
+*.pem
+*.p12
+*.key
+
+# Runtime logs
+*.log
+

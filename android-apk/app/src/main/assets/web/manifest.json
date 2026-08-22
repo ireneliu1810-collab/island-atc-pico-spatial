@@ -1,0 +1,15 @@
+{
+  "name": "海岛航空管制中心",
+  "short_name": "海岛管制",
+  "description": "在 PICO 空间中为海岛机场规划航线，引导固定翼飞机与直升机安全降落",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#051b27",
+  "background_color": "#051b27",
+  "xr_spatial_scene": {
+    "default_size": { "width": "1600px", "height": "980px" },
+    "worldScaling": "automatic",
+    "worldAlignment": "adaptive"
+  }
+}

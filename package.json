@@ -1,0 +1,29 @@
+{
+  "name": "island-atc-pico-webspatial",
+  "private": true,
+  "version": "1.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5208 --strictPort",
+    "build": "tsc -b && vite build",
+    "build:apk-web": "tsc -b && vite build --base ./",
+    "build:apk": "npm run build:apk-web && ./scripts/sync-android-web-assets.sh && cd android-apk && ./gradlew assembleDebug",
+    "lint": "oxlint src",
+    "preview": "vite preview --host 127.0.0.1 --port 5208 --strictPort"
+  },
+  "dependencies": {
+    "@webspatial/core-sdk": "1.7.0",
+    "@webspatial/react-sdk": "1.7.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "oxlint": "1.75.0",
+    "typescript": "6.0.2",
+    "vite": "8.2.0"
+  }
+}
