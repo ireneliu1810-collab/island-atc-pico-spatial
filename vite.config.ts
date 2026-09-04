@@ -5,5 +5,5 @@ export default defineConfig({
   plugins: [react()],
   server: { host: '127.0.0.1', port: 5208, strictPort: true },
   preview: { host: '127.0.0.1', port: 5208, strictPort: true },
-  build: { target: 'es2022' },
+  build: { target: 'es2020' },
 })

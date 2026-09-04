@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
+import android.util.Log
+import android.webkit.ConsoleMessage
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -19,11 +22,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import java.io.ByteArrayInputStream
 import java.io.IOException
 
 private const val APP_ASSET_HOST = "appassets.androidplatform.net"
 private const val APP_ASSET_ROOT = "/assets/web/"
 private const val APP_START_URL = "https://$APP_ASSET_HOST${APP_ASSET_ROOT}index.html"
+private const val LOG_TAG = "IslandATC.WebView"
 
 private class BundledAssetWebViewClient(
     context: Context,
@@ -49,8 +54,15 @@ private class BundledAssetWebViewClient(
                     "Access-Control-Allow-Origin" to "https://$APP_ASSET_HOST",
                 )
             }
-        } catch (_: IOException) {
-            null
+        } catch (error: IOException) {
+            val message = "Missing bundled web asset: $assetPath"
+            Log.e(LOG_TAG, message, error)
+            view?.post { onPageFailed(message) }
+            WebResourceResponse(
+                "text/plain", "UTF-8", 404, "Not Found",
+                mapOf("Cache-Control" to "no-store"),
+                ByteArrayInputStream(message.toByteArray()),
+            )
         }
     }
 
@@ -60,7 +72,21 @@ private class BundledAssetWebViewClient(
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
-        if (url == APP_START_URL) onPageLoaded()
+        if (url != APP_START_URL || view == null) return
+        view.postDelayed({
+            view.evaluateJavascript(
+                "Boolean(document.getElementById('root')?.childElementCount)",
+            ) { hasContent ->
+                if (hasContent == "true") {
+                    Log.i(LOG_TAG, "Embedded game rendered successfully")
+                    onPageLoaded()
+                } else {
+                    val message = "Embedded game loaded but rendered no content"
+                    Log.e(LOG_TAG, message)
+                    onPageFailed(message)
+                }
+            }
+        }, 750L)
     }
 
     override fun onReceivedError(
@@ -72,6 +98,19 @@ private class BundledAssetWebViewClient(
             onPageFailed(error?.description?.toString() ?: "Embedded game failed to load")
         }
     }
+
+    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+        val message = if (detail?.didCrash() == true) {
+            "WebView renderer crashed"
+        } else {
+            "WebView renderer was terminated"
+        }
+        Log.e(LOG_TAG, "$message; priority=${detail?.rendererPriorityAtExit()}")
+        onPageFailed(message)
+        view?.destroy()
+        return true
+    }
+
 
     private fun Uri.toBundledAssetPath(): String? {
         if (scheme != "https" || host != APP_ASSET_HOST) return null
@@ -94,6 +133,20 @@ private class BundledAssetWebViewClient(
     }
 }
 
+private class DiagnosticWebChromeClient : WebChromeClient() {
+    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+        consoleMessage ?: return false
+        val message = "${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})"
+        when (consoleMessage.messageLevel()) {
+            ConsoleMessage.MessageLevel.ERROR -> Log.e(LOG_TAG, message)
+            ConsoleMessage.MessageLevel.WARNING -> Log.w(LOG_TAG, message)
+            else -> Log.d(LOG_TAG, message)
+        }
+        return true
+    }
+}
+
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun SecureEmbeddedGame(
@@ -105,12 +158,12 @@ fun SecureEmbeddedGame(
         val context = LocalContext.current
         val webView = remember(context, reloadToken) {
             WebView(context).apply {
-                setBackgroundColor(Color.TRANSPARENT)
+                setBackgroundColor(Color.rgb(5, 27, 39))
                 webViewClient = BundledAssetWebViewClient(context, onPageLoaded, onPageFailed)
-                webChromeClient = WebChromeClient()
+                webChromeClient = DiagnosticWebChromeClient()
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
-                settings.userAgentString = "${settings.userAgentString} IslandATCSpatial/1.0.1"
+                settings.userAgentString = "${settings.userAgentString} IslandATCSpatial/1.0.2"
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.allowFileAccessFromFileURLs = false

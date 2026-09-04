@@ -17,7 +17,7 @@
 ## 技术栈
 
 - Android / Kotlin / Jetpack Compose
-- PICO Spatial SDK 0.13.3 与 SpatialUI
+- PICO Spatial SDK 6.0.0 与 SpatialUI
 - WebView 安全本地资源容器
 - React 19、TypeScript 6、Vite 8
 - WebSpatial SDK 1.7.0
@@ -62,7 +62,7 @@ android-apk/app/build/outputs/apk/debug/app-debug.apk
 APK 配置：
 
 - Package：`com.ireneliu.islandatc`
-- Version：`1.0.1`（versionCode 2）
+- Version：`1.0.2`（versionCode 3）
 - Android minSdk / targetSdk / compileSdk：35
 - ABI：`arm64-v8a`
 - Launcher：`.platform.LaunchActivity`

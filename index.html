@@ -4,11 +4,36 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#051b27" />
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #051b27; color: #dff8ff; }
+      #boot-status { position: fixed; inset: 0; display: grid; place-items: center; z-index: 99999;
+        background: radial-gradient(circle at 50% 35%, #123d50 0, #071c28 45%, #031018 100%);
+        font: 500 24px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; }
+      #boot-status strong { display: block; color: #76e3ff; font-size: 34px; letter-spacing: .08em; }
+      #boot-status small { display: block; margin-top: 10px; color: #8caeba; font-size: 16px; }
+    </style>
     <link rel="manifest" href="./manifest.json" />
     <title>海岛航空管制中心 · PICO WebSpatial</title>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-status" role="status">
+      <div><strong>海岛航空管制中心</strong>正在初始化空间空域…<small>ISLAND ATC · SPATIAL RUNTIME 6.0</small></div>
+    </div>
+    <script>
+      window.addEventListener('error', function (event) {
+        var status = document.getElementById('boot-status')
+        if (!status) return
+        status.innerHTML = '<div><strong>启动资源加载失败</strong>请退出应用后重新启动<small>' +
+          String(event.message || 'WEB_RUNTIME_ERROR').replace(/[<>&]/g, '') + '</small></div>'
+      })
+      window.addEventListener('unhandledrejection', function (event) {
+        var status = document.getElementById('boot-status')
+        if (!status) return
+        status.innerHTML = '<div><strong>空间页面初始化失败</strong>请退出应用后重新启动<small>' +
+          String(event.reason || 'PROMISE_REJECTION').replace(/[<>&]/g, '') + '</small></div>'
+      })
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

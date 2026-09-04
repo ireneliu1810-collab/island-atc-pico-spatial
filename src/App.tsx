@@ -23,7 +23,8 @@ function App() {
   }, [snapshot.score, best])
 
   useEffect(() => {
-    const nativeSpatialContainer = /IslandATCSpatial\/1\.0\.1/i.test(navigator.userAgent)
+    document.getElementById('boot-status')?.remove()
+    const nativeSpatialContainer = /IslandATCSpatial\//i.test(navigator.userAgent)
     if (nativeSpatialContainer) setSpatialMode(true)
     else try { setSpatialMode(new Spatial().runInSpatialWeb()) } catch { setSpatialMode(false) }
     if (!canvasRef.current) return
@@ -203,7 +204,7 @@ function App() {
 
       <footer className="input-dock glass" enable-xr="true" style={spatialStyle(112)}>
         <div><small>SPATIAL INPUT</small><b>射线锁定 · 按住拖拽 · 松开确认</b></div>
-        <span><kbd>TRIGGER</kbd> 选择 / 绘制航路</span><span><kbd>RAY</kbd> 空间指向</span><em>NATIVE SPATIAL · BUILD 1.0.1</em>
+        <span><kbd>TRIGGER</kbd> 选择 / 绘制航路</span><span><kbd>RAY</kbd> 空间指向</span><em>NATIVE SPATIAL · BUILD 1.0.2</em>
       </footer>
     </main>
   )

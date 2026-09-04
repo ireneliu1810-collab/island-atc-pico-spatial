@@ -12,8 +12,8 @@ android {
         applicationId = "com.ireneliu.islandatc"
         minSdk = 35
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters.add("arm64-v8a") }
@@ -69,7 +69,7 @@ tasks.named("preBuild").configure {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.0")
-    implementation(platform("com.pico.spatial:bom:0.13.3"))
+    implementation(platform("com.pico.spatial:bom:6.0.0"))
     implementation("com.pico.spatial.core:core")
     implementation("com.pico.spatial.ui:platform")
     implementation("com.pico.spatial.ui:foundation")
