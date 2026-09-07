@@ -12,16 +12,19 @@
 
 ## PICO 交互方式
 
-应用运行在原生 PICO Spatial 窗口中。通过手柄射线指向界面，使用 Trigger 完成按钮选择、飞行器锁定与航路绘制。应用未实现眼动追踪、手势追踪、MR 或多人联机。
+应用运行在 PICO Spatial 渐进式沉浸 Stage 中，远处使用海岛空域全景环境贴图，但舞台外不放置海岛沙盘、飞机、建筑等额外 3D 模型。游戏区内部采用斜视沙盘投影：海岛、跑道和停机坪具有分层厚度，飞机与地面阴影分离，航线贴地投影，降落时飞行高度逐步下降。用户通过手柄射线与 Trigger 完成选择和航路绘制。应用未实现眼动追踪、手势追踪、环境网格识别或多人联机。
 
 ## 技术栈
 
 - Android / Kotlin / Jetpack Compose
 - PICO Spatial SDK 6.0.0 与 SpatialUI
+- Progressive Stage、SpatialView 与 AttachmentPanel
+- 游戏内斜视投影、分层地形、设施厚度、航空器高度和贴地航线
+- WebView → Kotlin 安全遥测桥接
 - WebView 安全本地资源容器
 - React 19、TypeScript 6、Vite 8
 - WebSpatial SDK 1.7.0
-- Canvas 2D 实时航空管制模拟
+- Canvas 2D 实时航空管制模拟与轻量 2.5D 投影渲染
 
 网页构建产物会内置到 APK，并通过 `https://appassets.androidplatform.net/assets/web/index.html` 加载。应用不依赖 localhost、局域网或在线服务器。
 
@@ -59,10 +62,16 @@ Gradle 构建会先重新生成前端资源，再同步到 `android-apk/app/src/
 android-apk/app/build/outputs/apk/debug/app-debug.apk
 ```
 
+仓库中的当前真机测试包：
+
+```text
+release/Island-Air-Traffic-Control-Center-PICO-1.6.1.apk
+```
+
 APK 配置：
 
 - Package：`com.ireneliu.islandatc`
-- Version：`1.0.2`（versionCode 3）
+- Version：`1.6.1`（versionCode 11）
 - Android minSdk / targetSdk / compileSdk：35
 - ABI：`arm64-v8a`
 - Launcher：`.platform.LaunchActivity`

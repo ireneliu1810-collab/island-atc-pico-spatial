@@ -17,6 +17,14 @@ export interface GameSnapshot {
   mapNotice: string
 }
 
+declare global {
+  interface Window {
+    IslandATCNative?: {
+      onFlightFrame: (payload: string) => void
+    }
+  }
+}
+
 type Point = { x: number; y: number }
 type RunwayZone = Point & { angle: number; length: number; start: string; end: string }
 type Incoming = Point & { startX: number; startY: number; kind: AircraftKind; due: number }
@@ -81,8 +89,14 @@ export class IslandAtcGame {
   private spawnClock = 1.4
   private lastIncomingKind: AircraftKind | null = null
   private lastTime = 0
+  private lastDraw = 0
   private lastHud = 0
+  private simulationAccumulator = 0
+  private readonly frameInterval = /IslandATCSpatial\//i.test(navigator.userAgent) ? 1000 / 30 : 0
   private raf = 0
+  private diagnosticStartTimer = 0
+  private readonly spatialTestMode = /IslandATCSpatial\//i.test(navigator.userAgent)
+    && new URLSearchParams(window.location.search).get('spatial-test') === '1'
   private id = 0
   private width = 1200
   private height = 760
@@ -114,6 +128,9 @@ export class IslandAtcGame {
       this.emit()
     }
     this.raf = requestAnimationFrame(this.frame)
+    if (this.spatialTestMode) {
+      this.diagnosticStartTimer = window.setTimeout(this.start, 450)
+    }
   }
 
   start = () => {
@@ -123,6 +140,7 @@ export class IslandAtcGame {
     this.spawnClock = 1.8
     this.lastIncomingKind = null
     this.elapsed = 0
+    this.simulationAccumulator = 0
     this.mapNoticeUntil = 0
     this.snapshot = createSnapshot('playing')
     if (this.previewMap > 0) {
@@ -138,6 +156,7 @@ export class IslandAtcGame {
 
   destroy = () => {
     cancelAnimationFrame(this.raf)
+    window.clearTimeout(this.diagnosticStartTimer)
     this.resizeObserver.disconnect()
     this.canvas.removeEventListener('pointerdown', this.onPointerDown)
     this.canvas.removeEventListener('pointermove', this.onPointerMove)
@@ -149,21 +168,35 @@ export class IslandAtcGame {
     const rect = this.canvas.getBoundingClientRect()
     this.width = Math.max(640, rect.width)
     this.height = Math.max(420, rect.height)
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const nativeSpatialContainer = /IslandATCSpatial\//i.test(navigator.userAgent)
+    this.dpr = nativeSpatialContainer ? 1 : Math.min(window.devicePixelRatio || 1, 2)
     this.canvas.width = Math.round(this.width * this.dpr)
     this.canvas.height = Math.round(this.height * this.dpr)
   }
 
   private frame = (now: number) => {
-    const dt = this.lastTime ? Math.min((now - this.lastTime) / 1000, 0.04) : 0
+    this.raf = requestAnimationFrame(this.frame)
+    const elapsedSeconds = this.lastTime ? Math.min((now - this.lastTime) / 1000, 0.25) : 0
     this.lastTime = now
-    if (this.snapshot.phase === 'playing') this.update(dt)
+
+    if (this.snapshot.phase === 'playing') {
+      const fixedStep = 1 / 60
+      this.simulationAccumulator += elapsedSeconds
+      while (this.simulationAccumulator >= fixedStep) {
+        this.update(fixedStep)
+        this.simulationAccumulator -= fixedStep
+      }
+    } else {
+      this.simulationAccumulator = 0
+    }
+
+    if (this.frameInterval && this.lastDraw && now - this.lastDraw < this.frameInterval) return
+    this.lastDraw = now
     this.draw(now / 1000)
     if (now - this.lastHud > 120) {
       this.lastHud = now
       this.updateTelemetry()
     }
-    this.raf = requestAnimationFrame(this.frame)
   }
 
   private update(dt: number) {
@@ -172,7 +205,7 @@ export class IslandAtcGame {
     this.spawnClock -= dt
     if (this.spawnClock <= 0) {
       const activeTraffic = this.aircraft.filter(craft => craft.landing === 0).length + this.incoming.length
-      const trafficLimit = [2, 2, 3, 3, 4][this.snapshot.level - 1]
+      const trafficLimit = this.spatialTestMode ? 1 : [2, 2, 3, 3, 4][this.snapshot.level - 1]
       if (activeTraffic < trafficLimit) this.createIncoming()
       this.spawnClock = Math.max(3, 6.15 - this.snapshot.level * 0.38 - this.snapshot.landed * 0.012)
     }
@@ -297,6 +330,17 @@ export class IslandAtcGame {
   private makeAircraft(warning: Incoming): Aircraft {
     const center = this.islandCenter()
     const angle = Math.atan2(center.y - warning.startY, center.x - warning.startX) + (Math.random() - 0.5) * 0.32
+    const geometry = this.mapGeometry()
+    const runwayEntry = {
+      x: geometry.runways[0].x - Math.cos(geometry.runways[0].angle) * geometry.runways[0].length * geometry.scale * 0.42,
+      y: geometry.runways[0].y - Math.sin(geometry.runways[0].angle) * geometry.runways[0].length * geometry.scale * 0.42,
+    }
+    const testRoute = warning.kind === 'heli'
+      ? [center, geometry.pads[0]]
+      : [{
+          x: runwayEntry.x - Math.cos(geometry.runways[0].angle) * 150 * geometry.scale,
+          y: runwayEntry.y - Math.sin(geometry.runways[0].angle) * 150 * geometry.scale,
+        }, runwayEntry]
     return {
       id: ++this.id,
       kind: warning.kind,
@@ -306,7 +350,7 @@ export class IslandAtcGame {
       targetAngle: angle,
       speed: (warning.kind === 'plane' ? 56 : 43) + this.snapshot.level * 2,
       fuel: 96 + Math.random() * 14,
-      path: [],
+      path: this.spatialTestMode ? testRoute : [],
       landing: 0,
       opacity: 1,
       selected: false,
@@ -352,6 +396,40 @@ export class IslandAtcGame {
     this.snapshot.active = flying.length + this.incoming.length
     this.snapshot.risk = clamp(risk, 0, 99)
     this.emit()
+    this.emitSpatialFlightFrame()
+  }
+
+  private emitSpatialFlightFrame() {
+    const bridge = window.IslandATCNative
+    if (!bridge) return
+    const flights = this.aircraft.slice(0, 4).map(craft => ({
+      id: craft.id,
+      kind: craft.kind,
+      x: craft.x,
+      y: craft.y,
+      angle: craft.angle,
+      fuel: craft.fuel,
+      selected: craft.selected,
+      emergency: craft.emergency,
+      landing: craft.landing,
+      path: this.spatialRoute(craft.path),
+    }))
+    bridge.onFlightFrame(JSON.stringify({
+      phase: this.snapshot.phase,
+      mapIndex: this.snapshot.mapIndex,
+      width: this.width,
+      height: this.height,
+      flights,
+    }))
+  }
+
+  private spatialRoute(path: Point[]) {
+    const maximumPoints = 6
+    if (path.length <= maximumPoints) return path
+    return Array.from({ length: maximumPoints }, (_, index) => {
+      const sourceIndex = Math.round(index * (path.length - 1) / (maximumPoints - 1))
+      return path[sourceIndex]
+    })
   }
 
   private emit() {
@@ -360,20 +438,22 @@ export class IslandAtcGame {
 
   private point(event: PointerEvent): Point {
     const rect = this.canvas.getBoundingClientRect()
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+    return this.screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top })
   }
 
   private onPointerDown = (event: PointerEvent) => {
     if (this.snapshot.phase !== 'playing') return
+    const rect = this.canvas.getBoundingClientRect()
+    const screenPoint = { x: event.clientX - rect.left, y: event.clientY - rect.top }
     const point = this.point(event)
-    const craft = [...this.aircraft].reverse().find(item => item.landing === 0 && distance(item, point) < 56)
+    const craft = [...this.aircraft].reverse().find(item => item.landing === 0 && distance(this.aircraftScreenPosition(item), screenPoint) < 58)
     if (!craft) return
     event.preventDefault()
     this.canvas.setPointerCapture(event.pointerId)
     if (this.selected) this.selected.selected = false
     this.selected = craft
     craft.selected = true
-    craft.path = [point]
+    craft.path = [{ x: craft.x, y: craft.y }, point]
     navigator.vibrate?.(16)
   }
 
@@ -399,6 +479,46 @@ export class IslandAtcGame {
       center: this.islandCenter(),
       scale: Math.min(this.width / 1120, this.height / 700),
     }
+  }
+
+  private readonly groundScaleY = 0.72
+  private readonly groundShearX = -0.12
+
+  private applyGroundProjection() {
+    const center = this.islandCenter()
+    this.ctx.translate(center.x, center.y)
+    this.ctx.transform(1, 0, this.groundShearX, this.groundScaleY, 0, 0)
+    this.ctx.translate(-center.x, -center.y)
+  }
+
+  private worldToScreen(point: Point): Point {
+    const center = this.islandCenter()
+    const dy = point.y - center.y
+    return {
+      x: point.x + this.groundShearX * dy,
+      y: center.y + this.groundScaleY * dy,
+    }
+  }
+
+  private screenToWorld(point: Point): Point {
+    const center = this.islandCenter()
+    const dy = (point.y - center.y) / this.groundScaleY
+    return {
+      x: point.x - this.groundShearX * dy,
+      y: center.y + dy,
+    }
+  }
+
+  private projectedAngle(angle: number) {
+    const dx = Math.cos(angle)
+    const dy = Math.sin(angle)
+    return Math.atan2(this.groundScaleY * dy, dx + this.groundShearX * dy)
+  }
+
+  private aircraftScreenPosition(craft: Aircraft): Point {
+    const ground = this.worldToScreen(craft)
+    const flightHeight = (craft.kind === 'plane' ? 30 : 24) * (1 - clamp(craft.landing, 0, 1)) + 5
+    return { x: ground.x, y: ground.y - flightHeight }
   }
 
   private mapGeometry() {
@@ -441,7 +561,10 @@ export class IslandAtcGame {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
     ctx.clearRect(0, 0, this.width, this.height)
     this.drawSea(time)
+    ctx.save()
+    this.applyGroundProjection()
     this.drawIsland(time)
+    ctx.restore()
     this.drawTraffic(time)
     this.drawIncoming(time)
     if (this.snapshot.phase === 'standby') this.drawStandbyTraffic(time)
@@ -630,6 +753,13 @@ export class IslandAtcGame {
     ctx.translate(cx, cy)
     ctx.rotate(runwayZone.angle)
     ctx.scale(scale, scale)
+    const runwaySide = ctx.createLinearGradient(0, -24, 0, 43)
+    runwaySide.addColorStop(0, '#4b555d')
+    runwaySide.addColorStop(1, '#101a22')
+    ctx.fillStyle = runwaySide
+    ctx.beginPath()
+    ctx.roundRect(-half - 3, -29, runwayZone.length + 6, 72, 10)
+    ctx.fill()
     ctx.fillStyle = 'rgba(0,0,0,.28)'
     ctx.beginPath()
     ctx.roundRect(-half, -24, runwayZone.length, 64, 12)
@@ -720,6 +850,11 @@ export class IslandAtcGame {
     ctx.save()
     ctx.translate(x, y)
     ctx.scale(scale, scale)
+    const pedestal = ctx.createLinearGradient(0, -25, 0, 38)
+    pedestal.addColorStop(0, '#46666b')
+    pedestal.addColorStop(1, '#102b33')
+    ctx.fillStyle = pedestal
+    ctx.beginPath(); ctx.ellipse(0, 8, 44, 31, 0, 0, TAU); ctx.fill()
     ctx.fillStyle = 'rgba(0,0,0,.25)'
     ctx.beginPath(); ctx.ellipse(5, 9, 44, 31, 0, 0, TAU); ctx.fill()
     const pad = ctx.createRadialGradient(-8, -9, 2, 0, 0, 40)
@@ -815,14 +950,19 @@ export class IslandAtcGame {
     for (const craft of this.aircraft) {
       if (craft.path.length) {
         const ctx = this.ctx
-        ctx.beginPath(); ctx.moveTo(craft.x, craft.y)
-        craft.path.forEach(point => ctx.lineTo(point.x, point.y))
+        const routeStart = this.worldToScreen(craft)
+        ctx.beginPath(); ctx.moveTo(routeStart.x, routeStart.y)
+        craft.path.forEach(point => {
+          const projected = this.worldToScreen(point)
+          ctx.lineTo(projected.x, projected.y)
+        })
         ctx.strokeStyle = craft.emergency ? 'rgba(255,119,100,.85)' : craft.selected ? 'rgba(139,255,233,.95)' : 'rgba(139,255,233,.3)'
         ctx.lineWidth = craft.selected ? 4 : 2
         ctx.setLineDash([8, 8]); ctx.stroke(); ctx.setLineDash([])
         const target = craft.path.at(-1)!
+        const projectedTarget = this.worldToScreen(target)
         ctx.strokeStyle = craft.selected ? '#8bffe9' : 'rgba(139,255,233,.36)'; ctx.lineWidth = 2
-        ctx.beginPath(); ctx.arc(target.x, target.y, 8, 0, TAU); ctx.stroke()
+        ctx.beginPath(); ctx.ellipse(projectedTarget.x, projectedTarget.y, 9, 6, 0, 0, TAU); ctx.stroke()
       }
       this.drawAircraft(craft, time)
     }
@@ -831,13 +971,16 @@ export class IslandAtcGame {
   private drawAircraft(craft: Aircraft, time: number) {
     const ctx = this.ctx
     const scale = 1 - craft.landing * 0.38
+    const ground = this.worldToScreen(craft)
+    const screen = this.aircraftScreenPosition(craft)
+    const angle = this.projectedAngle(craft.angle)
     ctx.save(); ctx.globalAlpha = craft.opacity
-    ctx.translate(craft.x + 11 * scale, craft.y + 14 * scale); ctx.rotate(craft.angle); ctx.scale(scale, scale)
-    ctx.fillStyle = 'rgba(0,0,0,.22)'
-    if (craft.kind === 'plane') { ctx.beginPath(); ctx.ellipse(0, 0, 28, 8, 0, 0, TAU); ctx.fill(); ctx.fillRect(-6, -26, 15, 52) }
-    else { ctx.beginPath(); ctx.ellipse(0, 0, 23, 11, 0, 0, TAU); ctx.fill(); ctx.fillRect(-27, -2, 28, 4) }
+    ctx.translate(ground.x + 8 * scale, ground.y + 7 * scale); ctx.rotate(angle); ctx.scale(scale, scale * .72)
+    ctx.fillStyle = 'rgba(0,7,12,.34)'
+    if (craft.kind === 'plane') { ctx.beginPath(); ctx.ellipse(0, 0, 34, 11, 0, 0, TAU); ctx.fill(); ctx.fillRect(-8, -29, 18, 58) }
+    else { ctx.beginPath(); ctx.ellipse(0, 0, 29, 13, 0, 0, TAU); ctx.fill(); ctx.fillRect(-30, -3, 34, 6) }
     ctx.restore()
-    ctx.save(); ctx.globalAlpha = craft.opacity; ctx.translate(craft.x, craft.y); ctx.rotate(craft.angle); ctx.scale(scale, scale)
+    ctx.save(); ctx.globalAlpha = craft.opacity; ctx.translate(screen.x, screen.y); ctx.rotate(angle); ctx.scale(scale, scale)
     if (craft.selected || craft.emergency) {
       ctx.strokeStyle = craft.emergency ? '#ff796a' : '#8bffe9'; ctx.lineWidth = 2; ctx.setLineDash([4, 5])
       ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(time * 7) * 2, 0, TAU); ctx.stroke(); ctx.setLineDash([])
@@ -846,8 +989,8 @@ export class IslandAtcGame {
     else this.drawHelicopter(ctx, time)
     ctx.restore()
     const fuelColor = craft.fuel < 22 ? '#ff796a' : '#91f3de'
-    ctx.fillStyle = 'rgba(3,19,28,.74)'; ctx.beginPath(); ctx.roundRect(craft.x - 24, craft.y + 30, 48, 6, 3); ctx.fill()
-    ctx.fillStyle = fuelColor; ctx.beginPath(); ctx.roundRect(craft.x - 23, craft.y + 31, 46 * craft.fuel / 100, 4, 2); ctx.fill()
+    ctx.fillStyle = 'rgba(3,19,28,.8)'; ctx.beginPath(); ctx.roundRect(screen.x - 24, screen.y + 31, 48, 6, 3); ctx.fill()
+    ctx.fillStyle = fuelColor; ctx.beginPath(); ctx.roundRect(screen.x - 23, screen.y + 32, 46 * craft.fuel / 100, 4, 2); ctx.fill()
   }
 
   private drawPlane(ctx: CanvasRenderingContext2D) {
@@ -888,7 +1031,8 @@ export class IslandAtcGame {
     const ctx = this.ctx
     for (const warning of this.incoming) {
       const pulse = 1 + Math.sin(time * 8) * .08
-      ctx.save(); ctx.translate(warning.x, warning.y); ctx.scale(pulse, pulse)
+      const point = this.worldToScreen(warning)
+      ctx.save(); ctx.translate(point.x, point.y); ctx.scale(pulse, pulse * .82)
       ctx.fillStyle = 'rgba(3,24,34,.82)'; ctx.strokeStyle = '#f2cf68'; ctx.lineWidth = 2
       ctx.beginPath(); ctx.arc(0,0,24,0,TAU); ctx.fill(); ctx.stroke()
       ctx.fillStyle = '#f2cf68'; ctx.font='700 16px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(warning.kind === 'plane' ? '✈' : 'H',0,0)
@@ -900,6 +1044,8 @@ export class IslandAtcGame {
     const ctx = this.ctx
     const center = this.islandCenter()
     const angle = time * .22
-    ctx.save(); ctx.globalAlpha=.55; ctx.translate(center.x + Math.cos(angle)*270, center.y + Math.sin(angle)*150); ctx.rotate(angle+Math.PI/2); this.drawPlane(ctx); ctx.restore()
+    const world = { x: center.x + Math.cos(angle) * 270, y: center.y + Math.sin(angle) * 150 }
+    const screen = this.worldToScreen(world)
+    ctx.save(); ctx.globalAlpha=.62; ctx.translate(screen.x, screen.y - 30); ctx.rotate(this.projectedAngle(angle + Math.PI / 2)); this.drawPlane(ctx); ctx.restore()
   }
 }

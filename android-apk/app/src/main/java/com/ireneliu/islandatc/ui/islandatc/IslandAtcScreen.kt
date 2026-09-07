@@ -20,5 +20,6 @@ internal fun IslandAtcContent(
         reloadToken = state.reloadToken,
         onPageLoaded = { onEvent(IslandAtcEvent.PageLoaded) },
         onPageFailed = { onEvent(IslandAtcEvent.PageFailed(it)) },
+        onSpatialFlightFrame = { onEvent(IslandAtcEvent.SpatialFlightFrameReceived(it)) },
     )
 }

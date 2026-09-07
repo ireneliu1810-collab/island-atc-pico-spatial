@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.util.Log
+import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -14,6 +15,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.JavascriptInterface
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -22,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.ireneliu.islandatc.domain.model.SpatialFlightFrame
 import java.io.ByteArrayInputStream
 import java.io.IOException
 
@@ -29,6 +32,28 @@ private const val APP_ASSET_HOST = "appassets.androidplatform.net"
 private const val APP_ASSET_ROOT = "/assets/web/"
 private const val APP_START_URL = "https://$APP_ASSET_HOST${APP_ASSET_ROOT}index.html"
 private const val LOG_TAG = "IslandATC.WebView"
+
+private class SpatialFlightBridge(
+    private val onFrame: (SpatialFlightFrame) -> Unit,
+) {
+    private var lastSummary = ""
+
+    @JavascriptInterface
+    fun onFlightFrame(payload: String) {
+        try {
+            val frame = SpatialFlightFrame.fromJson(payload)
+            val routePoints = frame.flights.sumOf { it.route.size }
+            val summary = "${frame.phase}:${frame.flights.size}:route$routePoints:map${frame.mapIndex + 1}"
+            if (summary != lastSummary) {
+                lastSummary = summary
+                Log.i(LOG_TAG, "Spatial flight bridge $summary")
+            }
+            onFrame(frame)
+        } catch (error: Throwable) {
+            Log.w(LOG_TAG, "Ignored malformed spatial flight frame", error)
+        }
+    }
+}
 
 private class BundledAssetWebViewClient(
     context: Context,
@@ -75,10 +100,41 @@ private class BundledAssetWebViewClient(
         if (url != APP_START_URL || view == null) return
         view.postDelayed({
             view.evaluateJavascript(
-                "Boolean(document.getElementById('root')?.childElementCount)",
-            ) { hasContent ->
-                if (hasContent == "true") {
-                    Log.i(LOG_TAG, "Embedded game rendered successfully")
+                """
+                (() => {
+                  const pick = (selector) => {
+                    const element = document.querySelector(selector);
+                    if (!element) return null;
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return {
+                      selector,
+                      rect: [rect.x, rect.y, rect.width, rect.height],
+                      display: style.display,
+                      visibility: style.visibility,
+                      opacity: style.opacity,
+                      color: style.color,
+                      background: style.backgroundColor,
+                      children: element.childElementCount
+                    };
+                  };
+                  return JSON.stringify({
+                    viewport: [innerWidth, innerHeight, devicePixelRatio],
+                    readyState: document.readyState,
+                    root: pick('#root'),
+                    app: pick('.app'),
+                    topbar: pick('.topbar'),
+                    airspace: pick('.airspace'),
+                    modal: pick('.modal'),
+                    canvas: pick('canvas'),
+                    bodyText: document.body.innerText.slice(0, 120)
+                  });
+                })()
+                """.trimIndent(),
+            ) { diagnostics ->
+                Log.d(LOG_TAG, "DOM diagnostics: $diagnostics")
+                if (diagnostics.contains("\\\"app\\\":{", ignoreCase = false)) {
+                    Log.i(LOG_TAG, "Embedded game DOM is ready")
                     onPageLoaded()
                 } else {
                     val message = "Embedded game loaded but rendered no content"
@@ -153,17 +209,20 @@ fun SecureEmbeddedGame(
     reloadToken: Int,
     onPageLoaded: () -> Unit,
     onPageFailed: (String) -> Unit,
+    onSpatialFlightFrame: (SpatialFlightFrame) -> Unit,
 ) {
     key(reloadToken) {
         val context = LocalContext.current
         val webView = remember(context, reloadToken) {
             WebView(context).apply {
                 setBackgroundColor(Color.rgb(5, 27, 39))
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                Log.i(LOG_TAG, "Using software-composited WebView layer for Spatial window")
                 webViewClient = BundledAssetWebViewClient(context, onPageLoaded, onPageFailed)
                 webChromeClient = DiagnosticWebChromeClient()
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
-                settings.userAgentString = "${settings.userAgentString} IslandATCSpatial/1.0.2"
+                settings.userAgentString = "${settings.userAgentString} IslandATCSpatial/1.6.1"
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.allowFileAccessFromFileURLs = false
@@ -174,6 +233,10 @@ fun SecureEmbeddedGame(
                 settings.loadWithOverviewMode = true
                 isFocusable = true
                 isFocusableInTouchMode = true
+                addJavascriptInterface(
+                    SpatialFlightBridge(onSpatialFlightFrame),
+                    "IslandATCNative",
+                )
                 requestFocus()
                 loadUrl(APP_START_URL)
             }

@@ -12,8 +12,8 @@ android {
         applicationId = "com.ireneliu.islandatc"
         minSdk = 35
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 11
+        versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters.add("arm64-v8a") }
@@ -37,6 +37,11 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    androidResources {
+        noCompress.add(".usdz")
+        noCompress.add(".exr")
+        noCompress.add(".png")
     }
 }
 

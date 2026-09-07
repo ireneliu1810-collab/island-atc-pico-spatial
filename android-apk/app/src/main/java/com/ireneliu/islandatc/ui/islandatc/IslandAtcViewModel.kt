@@ -20,6 +20,9 @@ class IslandAtcViewModel : ViewModel() {
             IslandAtcEvent.RetryRequested -> _state.update {
                 it.copy(status = WebRuntimeStatus.Loading, reloadToken = it.reloadToken + 1)
             }
+            is IslandAtcEvent.SpatialFlightFrameReceived -> _state.update {
+                it.copy(spatialFlightFrame = event.frame)
+            }
         }
     }
 }

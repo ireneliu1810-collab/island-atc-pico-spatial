@@ -25,12 +25,16 @@ function App() {
   useEffect(() => {
     document.getElementById('boot-status')?.remove()
     const nativeSpatialContainer = /IslandATCSpatial\//i.test(navigator.userAgent)
+    document.documentElement.classList.toggle('native-spatial', nativeSpatialContainer)
     if (nativeSpatialContainer) setSpatialMode(true)
     else try { setSpatialMode(new Spatial().runInSpatialWeb()) } catch { setSpatialMode(false) }
     if (!canvasRef.current) return
     const game = new IslandAtcGame(canvasRef.current, setSnapshot)
     gameRef.current = game
-    return () => game.destroy()
+    return () => {
+      game.destroy()
+      document.documentElement.classList.remove('native-spatial')
+    }
   }, [])
 
   useEffect(() => {
@@ -119,7 +123,7 @@ function App() {
             <div className="airspace-scale scale-bottom"><i /><i /><i /><i /><i /><i /><i /></div>
             <div className="corner c1" /><div className="corner c2" /><div className="corner c3" /><div className="corner c4" />
             <div className="compass"><b>N</b><i /><span>09</span></div>
-            <div className="depth-tag">Z +148 · SPATIAL AIRSPACE</div>
+            <div className="depth-tag">GAMEPLAY DEPTH · ISOMETRIC AIRSPACE</div>
             <div className="signal-tag"><i /> LIVE VECTOR FEED</div>
 
             {snapshot.mapNotice && (
@@ -204,7 +208,7 @@ function App() {
 
       <footer className="input-dock glass" enable-xr="true" style={spatialStyle(112)}>
         <div><small>SPATIAL INPUT</small><b>射线锁定 · 按住拖拽 · 松开确认</b></div>
-        <span><kbd>TRIGGER</kbd> 选择 / 绘制航路</span><span><kbd>RAY</kbd> 空间指向</span><em>NATIVE SPATIAL · BUILD 1.0.2</em>
+        <span><kbd>TRIGGER</kbd> 选择 / 绘制航路</span><span><kbd>RAY</kbd> 空间指向</span><em>ISOMETRIC GAMEPLAY · BUILD 1.6.1</em>
       </footer>
     </main>
   )
